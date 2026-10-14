@@ -727,6 +727,37 @@
       </div>
 
       <div class="card" style="margin-top:20px;">
+        <div class="card-title">Week Settings</div>
+        <div class="form-grid form-grid-3" style="align-items:end;">
+          <div class="form-group">
+            <label>Week Starts On</label>
+            <select id="setting-start-day">
+              <option value="0">Sunday</option>
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Week Length (days)</label>
+            <select id="setting-week-length">
+              <option value="5">5 days</option>
+              <option value="6">6 days</option>
+              <option value="7">7 days</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button class="btn btn-primary" onclick="saveWeekSettings()">Save Settings</button>
+          </div>
+        </div>
+        <div id="week-preview" style="margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.5px;"></div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
         <div class="card-title">Data Management</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <button class="btn btn-ghost btn-sm" onclick="exportData()">
@@ -759,7 +790,7 @@ const STORAGE_KEY = 'chrono_v1';
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { people: [], categories: [], entries: [] };
+    if (!raw) return { people: [], categories: [], entries: [], weekSettings: { startDay: 6, length: 6 } };
     return JSON.parse(raw);
   } catch { return { people: [], categories: [], entries: [] }; }
 }
@@ -769,6 +800,7 @@ function saveData(data) {
 }
 
 let state = loadData();
+if (!state.weekSettings) state.weekSettings = { startDay: 6, length: 6 };
 
 // Track chart instances to destroy before redraw
 let chartInstances = {};
@@ -808,9 +840,9 @@ function fmtHoursDecimal(totalMinutes) {
 
 function getWeekStart(date) {
   const d = new Date(date);
-  const day = d.getDay(); // 0=Sun, 6=Sat
-  // Roll back to most recent Saturday (day 6)
-  const diff = (day >= 6) ? (day - 6) : (day + 1);
+  const startDay = state.weekSettings.startDay; // 0=Sun..6=Sat
+  const day = d.getDay();
+  const diff = (day - startDay + 7) % 7;
   d.setDate(d.getDate() - diff);
   d.setHours(0,0,0,0);
   return d;
@@ -818,7 +850,7 @@ function getWeekStart(date) {
 
 function getWeekEnd(weekStart) {
   const d = new Date(weekStart);
-  d.setDate(d.getDate() + 6);
+  d.setDate(d.getDate() + state.weekSettings.length - 1);
   d.setHours(23,59,59,999);
   return d;
 }
@@ -1082,7 +1114,10 @@ function renderPieChart(canvasId, entries, groupBy) {
 }
 
 function renderDailyBarChart(canvasId, weekStart, entries, groupBy) {
-  const days = ['Sat','Sun','Mon','Tue','Wed','Thu'];
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const days = Array.from({ length: state.weekSettings.length }, (_, i) =>
+    DAY_NAMES[(state.weekSettings.startDay + i) % 7]
+  );
   const keys = groupBy === 'category'
     ? [...new Set(entries.map(e => e.categoryId))]
     : [...new Set(entries.map(e => e.personId))];
@@ -1326,6 +1361,43 @@ function deleteEntry(id) {
 }
 
 // ═══════════════════════════════════
+// WEEK SETTINGS
+// ═══════════════════════════════════
+const DAY_NAMES_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAY_NAMES_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function renderWeekSettingsUI() {
+  const startSel = document.getElementById('setting-start-day');
+  const lenSel = document.getElementById('setting-week-length');
+  if (!startSel || !lenSel) return;
+  startSel.value = state.weekSettings.startDay;
+  lenSel.value = state.weekSettings.length;
+  updateWeekPreview();
+  startSel.addEventListener('change', updateWeekPreview);
+  lenSel.addEventListener('change', updateWeekPreview);
+}
+
+function updateWeekPreview() {
+  const startDay = parseInt(document.getElementById('setting-start-day').value);
+  const length = parseInt(document.getElementById('setting-week-length').value);
+  const dayLabels = Array.from({ length }, (_, i) =>
+    DAY_NAMES_SHORT[(startDay + i) % 7]
+  );
+  const endDayName = DAY_NAMES_FULL[(startDay + length - 1) % 7];
+  document.getElementById('week-preview').textContent =
+    '↳ Week: ' + dayLabels.join(' · ') + '  (' + length + ' days, ends ' + endDayName + ')';
+}
+
+function saveWeekSettings() {
+  const startDay = parseInt(document.getElementById('setting-start-day').value);
+  const length = parseInt(document.getElementById('setting-week-length').value);
+  state.weekSettings = { startDay, length };
+  saveData(state);
+  currentWeekOffset = 0;
+  showToast('Week settings saved', 'success');
+}
+
+// ═══════════════════════════════════
 // MANAGE PAGE
 // ═══════════════════════════════════
 function renderManage() {
@@ -1342,6 +1414,9 @@ function renderManage() {
       pList.appendChild(el);
     });
   }
+
+  // Week settings
+  renderWeekSettingsUI();
 
   // Categories
   const cList = document.getElementById('categories-list');
